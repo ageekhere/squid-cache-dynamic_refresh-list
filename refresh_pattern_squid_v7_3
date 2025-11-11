@@ -1,0 +1,179 @@
+# ========================================================================
+#          SQUID 7.3+ REFRESH PATTERNS (COMPREHENSIVE)
+# ========================================================================
+#
+# ABOUT THIS CONFIGURATION:
+#
+# 1. SSL BUMPING IS REQUIRED
+#    - Almost all vendors (Microsoft, Apple, Google, NVIDIA, etc.)
+#      deliver updates exclusively over HTTPS.
+#    - To cache this traffic, Squid MUST be configured for SSL Bumping
+#      (e.g., 'ssl_bump splice' or 'ssl_bump peek step1').
+#    - Without SSL Bumping, Squid only sees 'CONNECT' requests and
+#      95% of these rules will NOT be used.
+#    - The main exception is Linux HTTP repos (Section 2 & 3).
+#
+# 2. RULE ORDER IS CRITICAL
+#    - Rules are processed from top to bottom. The *first* match wins.
+#    - The order is:
+#      1. "Do Not Cache": Explicitly block dynamic content.
+#      2. "Short Cache": Metadata, AV definitions, repo lists.
+#      3. "Long Cache": Large vendor packages, installers, drivers.
+#      4. "Medium Cache": General web assets (images, CSS, JS).
+#      5. "Fallback": Default rule for everything else.
+#
+# 3. KEY OPTIONS USED:
+#    - store-stale:     Allows Squid to serve an expired (stale) object
+#                       if the origin server is down or slow. This is
+#                       CRITICAL for resilience and user experience.
+#
+#    - ignore-no-store: Forces caching even if the origin sends a
+#    - ignore-private:  "Cache-Control: no-store" or "private" header.
+#                       Used aggressively for vendor updates, as their
+#                       headers are often misconfigured.
+#
+# 4. TIMINGS: (min percent max)
+#    - 1 year:   525600
+#    - 3 months: 129600
+#    - 1 month:  43800
+#    - 1 week:   10080
+#    - 1 day:    1440
+#    - 4 hours:  240
+#
+# ========================================================================
+
+# ------------------------------------------------------------------------
+# SECTION 1: DO NOT CACHE (MUST BE FIRST)
+#
+# Any dynamic content, query strings, or admin pages.
+# These patterns match content that should NEVER be cached.
+# ------------------------------------------------------------------------
+refresh_pattern -i (/cgi-bin/|\?)                 0     0%     0
+refresh_pattern -i (wp-admin|web-admin|admin\.php|login\.php) 0 0% 0
+refresh_pattern -i (live_user)                    30    60%    300  # User's short-cache rule
+
+# ------------------------------------------------------------------------
+# SECTION 2: SHORT CACHE (Metadata, Feeds, Ad Lists)
+#
+# These files are small and update often (e.g., daily).
+# We cache them, but for a short period (4-24 hours).
+# ------------------------------------------------------------------------
+# --- Linux Repo Metadata (the package lists, *not* the packages) ---
+refresh_pattern -i (archive\.ubuntu|security\.debian|mirror\.centos|dl\.fedoraproject|download\.opensuse)\.org/.*\.(gz|bz2|xml|xz)(\?|$) 240 80% 1440 store-stale
+
+# --- Winget (Windows Package Manager) Metadata ---
+refresh_pattern -i (cdn\.winget\.microsoft\.com)/.* 240    80%  1440  store-stale
+refresh_pattern -i (storeedgefd\.dsx\.mp\.microsoft\.com)/.* 240 80% 1440 store-stale
+
+# --- Antivirus Definitions ---
+refresh_pattern -i (mbamupdates\.com)                                                             1440   60%  10080 store-stale
+refresh_pattern -i (definitions\.symantec\.com|liveupdate\.symantecliveupdate\.com)/.*\.(zip|exe)$ 1440   80%  10080 store-stale
+refresh_pattern -i (update\.eset\.com)/.*\.(nup|ver)$                                              1440   80%  10080 store-stale
+refresh_pattern -i (sophosxl\.net)/.* 1440   80%  10080 store-stale
+refresh_pattern -i (avast\.com|avg\.com)/.*\.(vpu|bin)$                                            1440   80%  10080 store-stale
+refresh_pattern -i (wdcp\.microsoft\.com|go\.microsoft\.com/fwlink)/.*\.(vdm|dat|bin)(\?|$)        1440   80%  10080 store-stale
+refresh_pattern -i (update\.mcafee\.com|download\.mcafee\.com)/.*\.(zip|dat|gem)(\?|$)             1440   80%  10080 store-stale
+refresh_pattern -i (download\.bitdefender\.com|upgrade\.bitdefender\.com)/.*\.(exe|zip|gz)(\?|$)  1440   80%  10080 store-stale
+
+# --- Ad Block / Filter Lists ---
+refresh_pattern -i \.(txt|dat)$                                                                   240    80%  1440  store-stale
+
+# ------------------------------------------------------------------------
+# SECTION 3: VENDOR UPDATES (OS)
+#
+# OS updates. These are large, static, and versioned.
+# We cache them for 1 year with aggressive options.
+# Options: 525600 100% 525600 store-stale ignore-no-store ignore-private
+# ------------------------------------------------------------------------
+
+# --- Microsoft Windows ---
+refresh_pattern -i (windowsupdate|update\.microsoft)\.com/.*\.(cab|exe|msi|msu|psf|zip|dat)(\?|$)   525600 100% 525600 store-stale ignore-no-store ignore-private
+refresh_pattern -i (download\.microsoft)\.com/.*\.(cab|exe|msi|msu|psf|zip|dat)(\?|$)             525600 100% 525600 store-stale ignore-no-store ignore-private
+refresh_pattern -i (dlassets\.xboxlive)\.com/.*\.(cab|exe|msi|zip)(\?|$)                           525600 100% 525600 store-stale ignore-no-store ignore-private
+
+# --- Apple (macOS / iOS) ---
+refresh_pattern -i (swcdn\.apple|swdist\.apple)\.com/.*\.(pkg|dmg|ipsw)(\?|$)                      525600 100% 525600 store-stale ignore-no-store ignore-private
+
+# --- Linux Packages (.deb / .rpm) ---
+# (These will work on HTTP *without* SSL Bumping if clients use http:// mirrors)
+refresh_pattern -i (archive\.ubuntu|security\.debian|mirror\.centos|dl\.fedoraproject|download\.opensuse)\.org/.*\.(deb|rpm)(\?|$) 525600 100% 525600 store-stale ignore-no-store ignore-private
+
+# --- Google (Android / ChromeOS) ---
+refresh_pattern -i (dl\.google|dl-ssl\.google)\.com/.*\.(zip|img|bin|exe|dmg)(\?|$)                525600 100% 525600 store-stale ignore-no-store ignore-private
+
+# ------------------------------------------------------------------------
+# SECTION 4: VENDOR UPDATES (Drivers)
+# ------------------------------------------------------------------------
+refresh_pattern -i (download\.nvidia\.com|international-gfe\.download\.nvidia\.com)/.*\.(exe|run|zip)(\?|$) 525600 100% 525600 store-stale ignore-no-store ignore-private
+refresh_pattern -i (drivers\.amd\.com|download\.amd\.com)/.*\.(exe|zip)(\?|$)                      525600 100% 525600 store-stale ignore-no-store ignore-private
+refresh_pattern -i (downloadcenter|downloadmirror)\.intel\.com/.*\.(exe|zip|msi)(\?|$)            525600 100% 525600 store-stale ignore-no-store ignore-private
+
+# ------------------------------------------------------------------------
+# SECTION 5: VENDOR UPDATES (Software)
+# ------------------------------------------------------------------------
+# --- Adobe ---
+refresh_pattern -i (get|platformdl|fpdownload|ardownload[0-9])\.adobe\.com/.*\.(exe|dmg|zip|dat)(\?|$) 525600 100% 525600 store-stale ignore-no-store ignore-private
+
+# --- Java ---
+refresh_pattern -i (download\.oracle\.com|javadl\.sun\.com)/.*\.(exe|msi|tar\.gz)(\?|$)            525600 100% 525600 store-stale ignore-no-store ignore-private
+
+# --- Browsers ---
+refresh_pattern -i (download-installer\.cdn\.mozilla\.net)/.*\.(exe|msi|dmg|pkg)(\?|$)             525600 100% 525600 store-stale ignore-no-store ignore-private
+refresh_pattern -i (dl\.google\.com/chrome/install)/.*\.(exe|msi|deb|rpm)(\?|$)                   525600 100% 525600 store-stale ignore-no-store ignore-private
+
+# --- Microsoft Store Apps ---
+refresh_pattern -i (tlu\.dl\.delivery\.mp\.microsoft\.com)/.*\.(msix|appx|msixbundle|appxbundle)(\?|$) 525600 100% 525600 store-stale ignore-no-store ignore-private
+refresh_pattern -i (displaycatalog\.md\.mp\.microsoft\.com)/.* 1440   80%  10080 store-stale
+
+# ------------------------------------------------------------------------
+# SECTION 6: GAMING PLATFORMS
+# ------------------------------------------------------------------------
+refresh_pattern -i \.(steampowered|steamcontent)\.com/.* 525600 100% 525600 store-stale ignore-no-store ignore-private
+refresh_pattern -i (epicgames-download1\.akamaized\.net)/.* 525600 100% 525600 store-stale ignore-no-store ignore-private
+refresh_pattern -i (blizzard|battle\.net)\.com/.* 525600 100% 525600 store-stale ignore-no-store ignore-private
+refresh_pattern -i (origin-content\.akamaized\.net|download\.dm\.origin\.com)/.* 525600 100% 525600 store-stale ignore-no-store ignore-private
+refresh_pattern -i (download\.ubi\.com|static\d+\.cdn\.ubi\.com)/.* 525600 100% 525600 store-stale ignore-no-store ignore-private
+
+# ------------------------------------------------------------------------
+# SECTION 7: WEB ASSETS & LARGE FILES
+#
+# General static content. These rules are less specific than
+# vendors but more specific than the final fallback.
+# ------------------------------------------------------------------------
+
+# --- Google Fonts (High-Hit Rule) ---
+# (Place before generic font rule to catch first. Speeds up most web browsing)
+refresh_pattern -i (fonts\.gstatic\.com|fonts\.googleapis\.com)/.* 1440   80%  10080 store-stale
+
+# --- Binaries & Installers (1 month min, 3 month max) ---
+# (This is the fallback for winget/chocolatey packages from non-major vendors)
+refresh_pattern -i \.(iso|img|dmg|bin|exe|msi|msu)(\?|$)        43800  100% 129600 store-stale
+refresh_pattern -i \.(rar|jar|gz|tgz|tar|bz2|zip|7z)(\?|$)     43800  100% 129600 store-stale
+
+# --- Media (1 month min, 3 month max) ---
+refresh_pattern -i \.(mp4|mkv|flv|mov|avi|mpeg|webm)(\?|$)     43800  100% 129600 store-stale
+refresh_pattern -i \.(mp3|wav|ogg|flac|aac)(\?|$)              43800  100% 129600 store-stale
+
+# --- Static Web Assets (Images, Fonts, Docs) ---
+refresh_pattern -i \.(png|jpe?g|gif|webp|bmp|ico|svg|tiff)(\?|$)  43800  100% 129600 store-stale
+refresh_pattern -i \.(woff2?|ttf|otf|eot)(\?|$)                   43800   85%  129600 store-stale
+refresh_pattern -i \.(pdf|docx?|xlsx?|pptx?)(\?|$)                10080   90%  43200  store-stale
+
+# --- Scripts & Styles (Shorter cache) ---
+refresh_pattern -i \.(css)(\?|$)                                  10080   80%  43800  store-stale
+refresh_pattern -i \.(js)(\?|$)                                   1440    80%  10080  store-stale
+refresh_pattern -i \.(xml|html|htm)(\?|$)                         360     80%  1440   store-stale
+
+# ------------------------------------------------------------------------
+# SECTION 8: FALLBACK (DEFAULT)
+#
+# This rule MUST be last. Catches anything not matched above.
+# "0 20% 4320" means:
+# - Do not consider it fresh by default (0 min).
+# - If it HAS a Last-Modified header, calculate freshness (20% of age).
+# - Cap this at 3 days (4320 min).
+# - store-stale provides a final safety net for all other content.
+# ------------------------------------------------------------------------
+refresh_pattern .                                         0     20%    4320   store-stale
+
+# ======================= END OF CONFIGURATION =========================
